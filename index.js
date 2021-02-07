@@ -606,6 +606,71 @@ ZipFile.prototype._readEntry = function () {
   );
 };
 
+ZipFile.prototype.getEntryData = function (entry, options, callback) {
+  var self = this;
+  if (callback == null) {
+    callback = options;
+    options = {};
+  } else {
+    // TODO: Validate any options
+  }
+  if (!self.isOpen) return callback(new Error("closed"));
+  self.reader.ref();
+  var buffer = newBuffer(30);
+  readAndAssertNoEof(
+    self.reader,
+    buffer,
+    0,
+    buffer.length,
+    entry.relativeOffsetOfLocalHeader,
+    function (err) {
+      try {
+        if (err) return callback(err);
+        // 0 - Local file header signature = 0x04034b50
+        var signature = buffer.readUInt32LE(0);
+        if (signature !== 0x04034b50) {
+          return callback(
+            new Error(
+              "invalid local file header signature: 0x" + signature.toString(16)
+            )
+          );
+        }
+        // all this should be redundant
+        // 4 - Version needed to extract (minimum)
+        // 6 - General purpose bit flag
+        // 8 - Compression method
+        // 10 - File last modification time
+        // 12 - File last modification date
+        // 14 - CRC-32
+        // 18 - Compressed size
+        // 22 - Uncompressed size
+        // 26 - File name length (n)
+        var fileNameLength = buffer.readUInt16LE(26);
+        // 28 - Extra field length (m)
+        var extraFieldLength = buffer.readUInt16LE(28);
+        // 30 - File name
+        // 30+n - Extra field
+        var localFileHeaderEnd =
+          entry.relativeOffsetOfLocalHeader +
+          buffer.length +
+          fileNameLength +
+          extraFieldLength;
+        var fileDataStart = localFileHeaderEnd;
+        var fileDataEnd = fileDataStart + entry.compressedSize;
+        var entryData = {
+          fileNameLength,
+          extraFieldLength,
+          fileDataStart,
+          fileDataEnd,
+        };
+        callback(null, entryData);
+      } finally {
+        self.reader.unref();
+      }
+    }
+  );
+};
+
 ZipFile.prototype.openReadStream = function (entry, options, callback) {
   var self = this;
   // parameter validation
